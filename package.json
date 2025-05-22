@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "frontend": "next dev --turbopack",
-    "backend": "nodemon server.js",
-    "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
+    "dev": "npm run frontend",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
