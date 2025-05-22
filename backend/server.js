@@ -5,9 +5,9 @@ const cors = require('cors');
 const socketIo = require('socket.io');
 const ObjectId = mongoose.Types.ObjectId;
 
-const User = require('./backend/User');
-const Conversation = require('./backend/Conversation');
-const Message = require('./backend/Message');
+const User = require('./User');
+const Conversation = require('./Conversation');
+const Message = require('./Message');
 
 const app = express();
 app.use(cors());
