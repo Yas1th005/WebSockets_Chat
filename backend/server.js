@@ -21,7 +21,7 @@ const io = socketIo(server, {
 });
 
 // MongoDB connection
-mongoose.connect('mongodb://localhost:27017/chatapp', {
+mongoose.connect('mongodb+srv://Yaswanth:dOElwEk4mVW953f9@yaswanthcluster.dr5kui4.mongodb.net/', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 }).then(() => console.log("MongoDB Connected"));
@@ -41,7 +41,6 @@ io.on('connection', (socket) => { //WE CAN ADD PARAMETERS TO THE SOCKET TO IDENT
   socket.on("user-signup", async (new_user) => {
   try {
     const existingUser = await User.findOne({ username: new_user.name });
-
     if (existingUser) {
       console.log("User already exists");
     } else {
@@ -72,8 +71,9 @@ io.on('connection', (socket) => { //WE CAN ADD PARAMETERS TO THE SOCKET TO IDENT
 
   socket.on("user-login", async (new_user) => {
   try {
-    const user = await User.findOne({ email: new_user.email });
 
+    const user = await User.findOne({ email: new_user.email });
+    console.log(user)
     if (!user) {
       socket.emit("login-failure","User not found");
     } else if (user.password === new_user.password) {
@@ -163,7 +163,6 @@ socket.on("get-contacts", async ({ userId }) => {
 
   
   socket.on('start-chat', async ({ senderId, receiverId }) => {
-    console.log(senderId,receiverId)
     let convo = await Conversation.findOne({ participants: { $all: [senderId, receiverId] } });
     if (!convo) {
       convo = new Conversation({ participants: [senderId, receiverId] });

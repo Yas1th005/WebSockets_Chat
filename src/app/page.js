@@ -51,7 +51,7 @@ const AuthModal = ({ isOpen, onClose, setContacts, setUserId }) => {
       socket.off("receiver-contacts");
       
       socket.on("login-success", (user) => {
-        // console.log("Login successful:", user);
+        console.log("Login successful:", user);
         socket.emit("user-online", user._id);
         setUserId(user);
         userProfile.name = user.username;
@@ -96,12 +96,16 @@ const AuthModal = ({ isOpen, onClose, setContacts, setUserId }) => {
       // Add new user
       const newUser = { name, email, password };
       socket.emit("user-signup", newUser);
-
-      // Set this user as current user
-      userProfile.name = name;
-      userProfile.userId = email;
-
-      onClose();
+      
+      // After signup, switch to login view with a success message
+      setIsLogin(true);
+      setError('');
+      setName('');
+      setEmail('');
+      setPassword('');
+      
+      // Show success message
+      setError('Account created successfully! Please log in.');
     }
   };
 
@@ -534,9 +538,9 @@ const ChatApp = () => {
       <h1 className="text-2xl font-bold text-white mb-2">Welcome to NextChat</h1>
       <p className="text-gray-400 max-w-md mb-8">
         A modern, secure messaging platform built with Next.js and Tailwind CSS.
-        {contacts.length > 0 ? " Select a conversation from the sidebar to get started." : " Please login to get started."}
+        {userId ? " Add a contact to get started." : " Please login to get started."}
       </p>
-      {contacts.length === 0 && (
+      {!userId && (
         <button
           onClick={() => setShowAuthModal(true)}
           className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
@@ -544,27 +548,13 @@ const ChatApp = () => {
           Login / Sign Up
         </button>
       )}
-      {contacts.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-center">
-          <div className="bg-gray-800 p-4 rounded-lg">
-            <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-3">
-              <Bell size={20} className="text-blue-500" />
-            </div>
-            <h3 className="font-medium text-white">Instant Notifications</h3>
-          </div>
-          <div className="bg-gray-800 p-4 rounded-lg">
-            <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-3">
-              <Users size={20} className="text-blue-500" />
-            </div>
-            <h3 className="font-medium text-white">Group Chats</h3>
-          </div>
-          <div className="bg-gray-800 p-4 rounded-lg">
-            <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-3">
-              <Moon size={20} className="text-blue-500" />
-            </div>
-            <h3 className="font-medium text-white">Dark Mode</h3>
-          </div>
-        </div>
+      {userId && contacts.length === 0 && (
+        <button
+          onClick={() => setShowAddMemberModal(true)}
+          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          Add New Contact
+        </button>
       )}
     </div>
   );
@@ -638,7 +628,7 @@ const ChatApp = () => {
           </div>
         </div>
 
-        {contacts.length === 0 ? (
+        {contacts.length === 0 && !userId ? (
           <div className="flex-1 flex flex-col items-center justify-center p-4">
             <div className="bg-gray-800 rounded-full p-6 mb-4">
               <Users size={32} className="text-blue-500" />
@@ -866,5 +856,8 @@ const ChatApp = () => {
 };
 
 export default ChatApp;
+
+
+
 
 
