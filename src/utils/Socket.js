@@ -2,7 +2,7 @@
 import io from 'socket.io-client';
 
 // Initialize the socket connection at the top level of your component or in a custom hook
-const socket = io('http://localhost:5000', {
+const socket = io('https://websockets-chat-3.onrender.com', {
   reconnection: true,
   reconnectionAttempts: 5,
   reconnectionDelay: 1000,
