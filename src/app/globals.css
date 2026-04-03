@@ -1,28 +1,77 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --app-bg: #07121b;
+  --foreground: #f6fbff;
+  --panel: linear-gradient(150deg, rgba(10, 24, 36, 0.92), rgba(8, 18, 28, 0.78));
+  --panel-soft: linear-gradient(160deg, rgba(12, 29, 44, 0.98), rgba(10, 22, 34, 0.92));
 }
 
 @theme inline {
-  --color-background: var(--background);
+  --color-background: var(--app-bg);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-space-grotesk);
+  --font-mono: var(--font-jetbrains-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
-  background: var(--background);
+  background: radial-gradient(circle at 10% 10%, #0f2941 0%, #07121b 45%, #050d14 100%);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-space-grotesk), "Segoe UI", sans-serif;
+  min-height: 100vh;
+}
+
+.font-display {
+  font-family: var(--font-space-grotesk), "Trebuchet MS", sans-serif;
+  letter-spacing: 0.02em;
+}
+
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(169, 220, 255, 0.35) transparent;
+}
+
+.chat-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.chat-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(90, 212, 255, 0.5), rgba(255, 207, 140, 0.35));
+  border-radius: 999px;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #c4f4ff;
+  display: inline-block;
+  animation: typing-bounce 0.9s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes typing-bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.7;
+  }
+  40% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
 }
 
 

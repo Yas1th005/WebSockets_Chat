@@ -1,863 +1,861 @@
-"use client"
-import { useState, useEffect, useRef } from 'react';
-import { Bell, Check, CheckCheck, MessageCircle, Search, Send, User, Users, Moon, Menu, X, LogOut, Settings, HelpCircle, Plus, UserPlus } from 'lucide-react';
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  CirclePlus,
+  LogOut,
+  Menu,
+  MessageSquareDot,
+  Search,
+  Send,
+  User,
+  UserRoundPlus,
+  Wifi,
+  WifiOff,
+  X,
+} from "lucide-react";
 import socket from "@/utils/Socket";
 
-// Initial state
-const initialContacts = [];
+const USER_STORAGE_KEY = "nextchat.user";
 
-// User profile data
-const userProfile = {
-  name: 'Guest User',
-  userId: '',
-  avatar: null,
+const getInitials = (name = "?") =>
+  name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+const formatTime = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 };
 
-// Login/Signup Modal Component
-const AuthModal = ({ isOpen, onClose, setContacts, setUserId }) => {
-  const [isLogin, setIsLogin] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
-  const [error, setError] = useState('');
-  
-  if (!isOpen) return null;
+const sortContacts = (items) =>
+  [...items].sort((a, b) => {
+    const aTime = a.lastMessageAt ? new Date(a.lastMessageAt).getTime() : 0;
+    const bTime = b.lastMessageAt ? new Date(b.lastMessageAt).getTime() : 0;
+    return bTime - aTime;
+  });
 
-  const getUsername = (userId) => {
-    return new Promise((resolve) => {
-      const handler = ({ userId: returnedId, name }) => {
-        if (returnedId.userId === userId) {
-          resolve(name);
-          socket.off("receiver-userName", handler);
-        }
-      };
+function AuthModal({ isOpen, onClose, onLoginSuccess }) {
+  const [mode, setMode] = useState("login");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-      socket.on("receiver-userName", handler);
-      socket.emit("get-userName", { userId: userId });
-    });
-  };
+  useEffect(() => {
+    if (!isOpen) {
+      setError("");
+      setLoading(false);
+    }
+  }, [isOpen]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setError('');
-
-    if (isLogin) {
-      // Login logic
-      socket.emit("user-login", { email, password });
-      
-      // Cleanup existing listeners before adding new ones
+  useEffect(() => {
+    return () => {
       socket.off("login-success");
       socket.off("login-failure");
-      socket.off("receiver-contacts");
-      
-      socket.on("login-success", (user) => {
-        console.log("Login successful:", user);
-        socket.emit("user-online", user._id);
-        setUserId(user);
-        userProfile.name = user.username;
-        userProfile.userId = user.email;
-        
-        socket.emit("get-contacts", { userId: user._id });
-        
-        socket.on("receiver-contacts", async (convos) => {
-          if (!Array.isArray(convos)) {
-            // console.error("convos is not an array:", convos);
-            return;
-          }
-
-          const contactsWithNames = await Promise.all(
-            convos.map(async (convo, ind) => {
-              const name = await getUsername(convo.otherUserId);
-              return {
-                id: ind + 1,
-                convo_id: convo.convoId,
-                other_id: convo.otherUserId,
-                other_name: name,
-              };
-            })
-          );
-
-          setContacts(contactsWithNames);
-        });
-
-        onClose();
-      });
-      
-      socket.on("login-failure", (msg) => {
-        setError(msg);
-      });
-    } else {
-      // Signup logic
-      if (!name.trim()) {
-        setError('Name is required');
-        return;
-      }
-      
-      // Add new user
-      const newUser = { name, email, password };
-      socket.emit("user-signup", newUser);
-      
-      // After signup, switch to login view with a success message
-      setIsLogin(true);
-      setError('');
-      setName('');
-      setEmail('');
-      setPassword('');
-      
-      // Show success message
-      setError('Account created successfully! Please log in.');
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 rounded-lg p-6 w-full max-w-md">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-white">{isLogin ? 'Login' : 'Sign Up'}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
-            <X size={20} />
-          </button>
-        </div>
-
-        {error && (
-          <div className="bg-red-900 bg-opacity-30 border border-red-800 text-red-300 px-4 py-2 rounded mb-4">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit}>
-          {!isLogin && (
-            <div className="mb-4">
-              <label className="block text-gray-300 mb-2">Name</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full bg-gray-800 text-white rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter your name"
-              />
-            </div>
-          )}
-
-          <div className="mb-4">
-            <label className="block text-gray-300 mb-2">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full bg-gray-800 text-white rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter your email"
-            />
-          </div>
-
-          <div className="mb-6">
-            <label className="block text-gray-300 mb-2">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full bg-gray-800 text-white rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter your password"
-            />
-          </div>
-
-          <button
-            type="submit"
-            className="w-full bg-blue-600 text-white rounded py-2 font-medium hover:bg-blue-700 transition-colors"
-          >
-            {isLogin ? 'Login' : 'Sign Up'}
-          </button>
-        </form>
-
-        <div className="mt-4 text-center">
-          <button
-            onClick={() => setIsLogin(!isLogin)}
-            className="text-blue-400 hover:text-blue-300"
-          >
-            {isLogin ? 'Need an account? Sign Up' : 'Already have an account? Login'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Add Member Modal Component
-const AddMemberModal = ({ isOpen, onClose, contacts, setContacts, senderId }) => {
-  const [userId, setUserId] = useState('');
-  const [error, setError] = useState('');
+      socket.off("signup-success");
+      socket.off("signup-failure");
+    };
+  }, []);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setError('');
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    setError("");
 
-    if (!userId.trim()) {
-      setError('User ID is required');
+    if (!email.trim() || !password.trim()) {
+      setError("Email and password are required");
       return;
     }
 
-    // Clean up existing listeners before adding new ones
-    socket.off("receiver-id");
-    socket.off("chat-started");
-    socket.off("receiver-userName");
-    socket.off("no-user");
+    setLoading(true);
 
-    socket.emit("first-start", { senderId, userId });
-    
-    socket.on("receiver-id", (rec_id) => {
-      socket.emit("start-chat", { senderId: senderId._id, receiverId: rec_id });
-      
-      socket.on("chat-started", (convoId) => {
-        socket.emit("get-userName", { userId: rec_id });
-        
-        socket.once("receiver-userName", (name) => {
-          const newContact = {
-            id: contacts.length + 1,
-            convo_id: convoId,
-            other_id: rec_id,
-            other_name: name.name,
-          };
+    if (mode === "login") {
+      socket.off("login-success");
+      socket.off("login-failure");
 
-          setContacts([...contacts, newContact]);
-        });
+      socket.once("login-success", (user) => {
+        setLoading(false);
+        onLoginSuccess(user);
       });
-    });
-    
-    socket.on("no-user", (msg) => {
-      setError(msg);
+
+      socket.once("login-failure", (message) => {
+        setLoading(false);
+        setError(message || "Login failed");
+      });
+
+      socket.emit("user-login", { email: email.trim(), password });
+      return;
+    }
+
+    if (!name.trim()) {
+      setLoading(false);
+      setError("Name is required");
+      return;
+    }
+
+    socket.off("signup-success");
+    socket.off("signup-failure");
+
+    socket.once("signup-success", (message) => {
+      setLoading(false);
+      setMode("login");
+      setName("");
+      setPassword("");
+      setError(message || "Account created. Please log in.");
     });
 
-    setUserId('');
-    onClose();
+    socket.once("signup-failure", (message) => {
+      setLoading(false);
+      setError(message || "Signup failed");
+    });
+
+    socket.emit("user-signup", { name: name.trim(), email: email.trim(), password });
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-gray-900 rounded-lg p-6 w-full max-w-md">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-bold text-white">Add New Contact</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white">
-            <X size={20} />
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-3xl border border-white/20 bg-[var(--panel-soft)] p-6 shadow-2xl shadow-black/40">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-2xl font-semibold text-white">{mode === "login" ? "Welcome back" : "Create account"}</h2>
+          <button
+            className="rounded-full p-2 text-white/80 transition hover:bg-white/10"
+            onClick={onClose}
+            aria-label="Close auth modal"
+          >
+            <X size={18} />
           </button>
         </div>
 
-        {error && (
-          <div className="bg-red-900 bg-opacity-30 border border-red-800 text-red-300 px-4 py-2 rounded mb-4">
-            {error}
-          </div>
-        )}
+        {error ? (
+          <p className="mb-4 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-100">{error}</p>
+        ) : null}
 
-        <form onSubmit={handleSubmit}>
-          <div className="mb-6">
-            <label className="block text-gray-300 mb-2">User ID or Email</label>
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          {mode === "signup" ? (
+            <label className="block">
+              <span className="mb-1 block text-sm text-white/80">Display name</span>
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className="w-full rounded-xl border border-white/20 bg-black/20 px-4 py-2.5 text-white outline-none ring-cyan-400/60 transition focus:ring"
+                placeholder="Aster Nova"
+              />
+            </label>
+          ) : null}
+
+          <label className="block">
+            <span className="mb-1 block text-sm text-white/80">Email</span>
             <input
-              type="text"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              className="w-full bg-gray-800 text-white rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter user ID or email"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              className="w-full rounded-xl border border-white/20 bg-black/20 px-4 py-2.5 text-white outline-none ring-cyan-400/60 transition focus:ring"
+              placeholder="you@domain.com"
             />
-          </div>
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-sm text-white/80">Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="w-full rounded-xl border border-white/20 bg-black/20 px-4 py-2.5 text-white outline-none ring-cyan-400/60 transition focus:ring"
+              placeholder="Your secret"
+            />
+          </label>
 
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white rounded py-2 font-medium hover:bg-blue-700 transition-colors"
+            className="w-full rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-4 py-2.5 font-semibold text-slate-900 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={loading}
           >
-            Add Contact
+            {loading ? "Please wait..." : mode === "login" ? "Sign in" : "Sign up"}
+          </button>
+        </form>
+
+        <button
+          onClick={() => setMode(mode === "login" ? "signup" : "login")}
+          className="mt-4 w-full text-sm text-cyan-200 transition hover:text-cyan-100"
+        >
+          {mode === "login" ? "New here? Create an account" : "Already a member? Log in"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AddContactModal({ isOpen, onClose, onAdd, senderId }) {
+  const [identifier, setIdentifier] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIdentifier("");
+      setError("");
+      setLoading(false);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    setError("");
+
+    if (!identifier.trim()) {
+      setError("Enter a userid, username or email");
+      return;
+    }
+
+    setLoading(true);
+
+    socket.off("receiver-id");
+    socket.off("no-user");
+    socket.off("chat-started");
+
+    socket.once("receiver-id", (receiverId) => {
+      socket.emit("start-chat", { senderId, receiverId });
+    });
+
+    socket.once("chat-started", (convoId) => {
+      setLoading(false);
+      onAdd(convoId);
+      onClose();
+    });
+
+    socket.once("no-user", (message) => {
+      setLoading(false);
+      setError(message || "User not found");
+    });
+
+    socket.emit("first-start", { userId: identifier.trim(), requesterId: senderId });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 px-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-3xl border border-white/20 bg-[var(--panel-soft)] p-6 shadow-2xl shadow-black/40">
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-white">Start a new conversation</h2>
+          <button
+            className="rounded-full p-2 text-white/80 transition hover:bg-white/10"
+            onClick={onClose}
+            aria-label="Close add contact modal"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {error ? (
+          <p className="mb-4 rounded-xl border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-sm text-rose-100">{error}</p>
+        ) : null}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <label className="block">
+            <span className="mb-1 block text-sm text-white/80">User ID, username or email</span>
+            <input
+              value={identifier}
+              onChange={(event) => setIdentifier(event.target.value)}
+              className="w-full rounded-xl border border-white/20 bg-black/20 px-4 py-2.5 text-white outline-none ring-cyan-400/60 transition focus:ring"
+              placeholder="user09 or someone@email.com"
+            />
+          </label>
+
+          <button
+            type="submit"
+            className="w-full rounded-xl bg-gradient-to-r from-amber-300 to-orange-400 px-4 py-2.5 font-semibold text-slate-900 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={loading}
+          >
+            {loading ? "Connecting..." : "Create chat"}
           </button>
         </form>
       </div>
     </div>
   );
-};
+}
 
-// Profile Dropdown Component
-const ProfileDropdown = ({ isOpen, onClose, profile }) => {
-  if (!isOpen) return null;
-
-  return (
-    <div className="absolute top-14 right-4 w-60 bg-gray-800 rounded-lg shadow-lg border border-gray-700 py-2 z-50 animate-fadeIn">
-      <div className="px-4 py-3 border-b border-gray-700">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center">
-            <span className="text-lg font-medium text-white">{profile.name.charAt(0)}</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-white truncate">{profile.name}</p>
-            <p className="text-sm text-gray-400 truncate">{profile.userId}</p>
-          </div>
-        </div>
-      </div>
-      
-      <div className="py-1">
-        <button className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center space-x-3">
-          <User size={16} />
-          <span>My Profile</span>
-        </button>
-        <button className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center space-x-3">
-          <Settings size={16} />
-          <span>Settings</span>
-        </button>
-        <button className="w-full px-4 py-2 text-left text-white hover:bg-gray-700 flex items-center space-x-3">
-          <HelpCircle size={16} />
-          <span>Help & Support</span>
-        </button>
-      </div>
-      
-      <div className="pt-1 border-t border-gray-700">
-        <button className="w-full px-4 py-2 text-left text-red-400 hover:bg-gray-700 flex items-center space-x-3">
-          <LogOut size={16} />
-          <span>Sign Out</span>
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// Toast notification component
-const Toast = ({ message, onClose, onClick }) => {
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      onClose();
-    }, 5000);
-    
-    return () => clearTimeout(timer);
-  }, [onClose]);
-  
-  return (
-    <div 
-      className="fixed bottom-4 right-4 bg-gray-800 text-white px-4 py-3 rounded-lg shadow-lg flex items-center space-x-2 z-50 cursor-pointer hover:bg-gray-700"
-      style={{
-        animation: 'slideUp 0.3s ease-out forwards'
-      }}
-      onClick={onClick}
-    >
-      <Bell size={18} className="text-blue-400" />
-      <div>
-        <p className="font-medium">{message.title}</p>
-        <p className="text-sm text-gray-300">{message.body}</p>
-      </div>
-      <button 
-        onClick={(e) => {
-          e.stopPropagation();
-          onClose();
-        }} 
-        className="ml-4 text-gray-400 hover:text-white"
-      >
-        <X size={16} />
-      </button>
-    </div>
-  );
-};
-
-// Main ChatApp component
-const ChatApp = () => {
-  const [contacts, setContacts] = useState(initialContacts);
-  const [activeContact, setActiveContact] = useState(null);
-  const [toast, setToast] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
-  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const [showAuthModal, setShowAuthModal] = useState(contacts.length === 0);
-  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
-  const profileDropdownRef = useRef(null);
-  const [userId, setUserId] = useState("");
-  const messagesEndRef = useRef(null);
-
+export default function ChatPage() {
+  const [user, setUser] = useState(null);
+  const [contacts, setContacts] = useState([]);
   const [messages, setMessages] = useState([]);
-  const [msg, setMsg] = useState("");
-  const [typing, setTyping] = useState(false);
-  const [typingSender, setTypingSender] = useState(null);
-  const [conversationId, setConversationId] = useState("");
+  const [activeConvoId, setActiveConvoId] = useState("");
+  const [searchContacts, setSearchContacts] = useState("");
+  const [searchInChat, setSearchInChat] = useState("");
+  const [drafts, setDrafts] = useState({});
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
+  const [typingSender, setTypingSender] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState("disconnected");
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Close dropdown when clicking outside
+  const activeConvoRef = useRef("");
+  const userRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const messagesEndRef = useRef(null);
+
   useEffect(() => {
-    function handleClickOutside(event) {
-      if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
-        setProfileDropdownOpen(false);
-      }
-    }
-    
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
-  }, [profileDropdownRef]);
+    activeConvoRef.current = activeConvoId;
+  }, [activeConvoId]);
 
-
-  // Effect to scroll to bottom of messages when new message arrives
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, typingSender]);
+    userRef.current = user;
+  }, [user]);
 
+  const upsertContactPreview = useCallback((conversationId, content, createdAt, senderId) => {
+    setContacts((prev) => {
+      const updated = prev.map((contact) =>
+        contact.convoId === conversationId
+          ? {
+              ...contact,
+              lastMessage: content,
+              lastMessageAt: createdAt,
+              lastMessageSender: senderId,
+            }
+          : contact,
+      );
 
-  // Handle clicking on a contact
-  const handleContactClick = (contact) => {
-    setActiveContact(contact);
-    setConversationId(contact.convo_id);
-    
-    // Mark messages as read when opening conversation
-    socket.emit('mark-as-read', { conversationId: contact.convo_id, userId: userId._id });
-    
-    // Clear unread count for this conversation
-    setUnreadCounts(prev => ({
-      ...prev,
-      [contact.convo_id]: 0
-    }));
-    
-    // Clear previous messages when changing contacts
-    setMessages([]);
-    
-    // IMPORTANT: Join the conversation room
-    socket.emit("join-room", { conversationId: contact.convo_id });
-    
-    // Then fetch messages for this conversation
-    socket.emit("get-messages", { conversationId: contact.convo_id });
-    
-    // Clean up previous listener to avoid duplicate messages
-    socket.off("messages-history");
-    
-    socket.on("messages-history", (messageHistory) => {
-      // console.log("Received message history:", messageHistory);
-      if (Array.isArray(messageHistory)) {
-        setMessages(messageHistory);
-      }
+      return sortContacts(updated);
     });
-    
-    setMobileMenuOpen(false);
-  };
+  }, []);
 
-  // Fix for the useEffect that handles socket events
-  useEffect(() => {
-    // Make sure socket is defined here
-    
-    // Setup socket listeners
-    socket.on("receive-message", (message) => {
-      // console.log("Received message:", message);
-      setMessages((prev) => [...prev, message]);
-      
-      // If this is the active conversation, mark as read
-      if (conversationId === message.conversationId && message.sender !== userId._id) {
-        socket.emit('mark-as-read', { conversationId, userId: userId._id });
-      }
-    });
-    
-    socket.on("typing", ({ senderId }) => {
-      setTypingSender(senderId);
-    });
-    
-    socket.on("stop-typing", () => {
-      setTypingSender(null);
-    });
+  const fetchContacts = useCallback(
+    (uid, preferredConvoId) => {
+      if (!uid) return;
 
-    socket.on("show-online", (users) => {
-      // console.log("Online users:", users);
-      setOnlineUsers(users);
-    });
-
-    // Listen for new message alerts
-    socket.on("new-message-alert", ({ conversationId, unreadCount }) => {
-      if (activeContact?.convo_id !== conversationId) {
-        setUnreadCounts(prev => ({
-          ...prev,
-          [conversationId]: unreadCount
+      socket.off("receiver-contacts");
+      socket.once("receiver-contacts", (convos) => {
+        const normalized = (Array.isArray(convos) ? convos : []).map((convo, index) => ({
+          id: convo.convoId || `${index + 1}`,
+          convoId: convo.convoId,
+          otherId: convo.otherUserId,
+          otherName: convo.otherName || "Unknown",
+          unreadCount: typeof convo.unreadCount === "number" ? convo.unreadCount : 0,
+          lastMessage: convo.lastMessage || "",
+          lastMessageAt: convo.lastMessageAt || null,
+          lastMessageSender: convo.lastMessageSender || null,
         }));
-        
-        // Find the contact for this conversation
-        const contact = contacts.find(c => c.convo_id === conversationId);
-        if (contact) {
-          // Show toast notification with the contact info
-          setToast({
-            title: `New message from ${contact.other_name}`,
-            body: `You have ${unreadCount} unread message${unreadCount > 1 ? 's' : ''}`,
-            contactId: contact.id,
-            conversationId
-          });
+
+        const sorted = sortContacts(normalized);
+        setContacts(sorted);
+
+        const unreadFromContacts = {};
+        normalized.forEach((item) => {
+          if (typeof item.unreadCount === "number" && item.unreadCount > 0) {
+            unreadFromContacts[item.convoId] = item.unreadCount;
+          }
+        });
+
+        if (Object.keys(unreadFromContacts).length > 0) {
+          setUnreadCounts((prev) => ({ ...prev, ...unreadFromContacts }));
+        }
+
+        if (sorted.length === 0) {
+          setActiveConvoId("");
+          return;
+        }
+
+        const target =
+          sorted.find((contact) => contact.convoId === preferredConvoId) ||
+          sorted.find((contact) => contact.convoId === activeConvoRef.current) ||
+          sorted[0];
+
+        setActiveConvoId(target.convoId);
+      });
+
+      socket.emit("get-contacts", { userId: uid });
+    },
+    [],
+  );
+
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem(USER_STORAGE_KEY);
+      if (!cached) {
+        setShowAuthModal(true);
+        return;
+      }
+
+      const parsed = JSON.parse(cached);
+      if (!parsed?._id) {
+        setShowAuthModal(true);
+        return;
+      }
+
+      setUser(parsed);
+      setShowAuthModal(false);
+      socket.emit("user-online", parsed._id);
+      fetchContacts(parsed._id);
+    } catch {
+      setShowAuthModal(true);
+    }
+  }, [fetchContacts]);
+
+  useEffect(() => {
+    setConnectionStatus(socket.connected ? "connected" : "disconnected");
+
+    const handleConnect = () => {
+      setConnectionStatus("connected");
+      const currentUser = userRef.current;
+      if (currentUser?._id) {
+        socket.emit("user-online", currentUser._id);
+        fetchContacts(currentUser._id, activeConvoRef.current);
+      }
+    };
+
+    const handleDisconnect = () => setConnectionStatus("disconnected");
+    const handleReconnectAttempt = () => setConnectionStatus("reconnecting");
+
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
+    socket.on("reconnect_attempt", handleReconnectAttempt);
+
+    return () => {
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+      socket.off("reconnect_attempt", handleReconnectAttempt);
+    };
+  }, [fetchContacts]);
+
+  useEffect(() => {
+    const handleHistory = (history) => {
+      setMessages(Array.isArray(history) ? history : []);
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    const handleIncomingMessage = (message) => {
+      const currentUser = userRef.current;
+      if (!currentUser?._id) return;
+
+      upsertContactPreview(message.conversationId, message.content, message.createdAt, message.sender);
+
+      if (message.conversationId === activeConvoRef.current) {
+        setMessages((prev) => [...prev, message]);
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+
+        if (message.sender !== currentUser._id) {
+          socket.emit("mark-as-read", { conversationId: message.conversationId, userId: currentUser._id });
+          setUnreadCounts((prev) => ({ ...prev, [message.conversationId]: 0 }));
         }
       }
-    });
-    
-    // Listen for initial unread counts
-    socket.on("unread-counts", (counts) => {
-      setUnreadCounts(counts);
-    });
-    
-    return () => {
-      socket.off("receive-message");
-      socket.off("typing");
-      socket.off("stop-typing");
-      socket.off("show-online");
-      socket.off("new-message-alert");
-      socket.off("unread-counts");
-      // Don't disconnect the socket here - just remove listeners
     };
-  }, [conversationId, activeContact, userId, contacts]);
 
-  // Fix for the sendMessage function
-  const sendMessage = () => {
-    if (!msg.trim() || !conversationId) return;
-    
-    // console.log("Sending message:", {
-    //   conversationId,
-    //   senderId: userId._id,
-    //   content: msg,
-    // });
-    
-    socket.emit("send-message", {
-      conversationId,
-      senderId: userId._id,
-      content: msg,
+    const handleTyping = ({ senderId }) => {
+      if (senderId === userRef.current?._id) return;
+
+      setTypingSender(senderId);
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      typingTimeoutRef.current = setTimeout(() => {
+        setTypingSender(null);
+      }, 2200);
+    };
+
+    const handleStopTyping = () => setTypingSender(null);
+
+    const handleOnline = (users) => setOnlineUsers(Array.isArray(users) ? users : []);
+    const handleUnread = (counts) => setUnreadCounts(counts || {});
+
+    const handleMessageAlert = ({ conversationId, unreadCount }) => {
+      if (conversationId === activeConvoRef.current) return;
+      setUnreadCounts((prev) => ({ ...prev, [conversationId]: unreadCount }));
+    };
+
+    socket.on("messages-history", handleHistory);
+    socket.on("receive-message", handleIncomingMessage);
+    socket.on("typing", handleTyping);
+    socket.on("stop-typing", handleStopTyping);
+    socket.on("show-online", handleOnline);
+    socket.on("unread-counts", handleUnread);
+    socket.on("new-message-alert", handleMessageAlert);
+
+    return () => {
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+
+      socket.off("messages-history", handleHistory);
+      socket.off("receive-message", handleIncomingMessage);
+      socket.off("typing", handleTyping);
+      socket.off("stop-typing", handleStopTyping);
+      socket.off("show-online", handleOnline);
+      socket.off("unread-counts", handleUnread);
+      socket.off("new-message-alert", handleMessageAlert);
+    };
+  }, [upsertContactPreview]);
+
+  useEffect(() => {
+    const currentUser = userRef.current;
+    if (!activeConvoId || !currentUser?._id) return;
+
+    socket.emit("join-room", { conversationId: activeConvoId });
+    socket.emit("get-messages", { conversationId: activeConvoId });
+    socket.emit("mark-as-read", { conversationId: activeConvoId, userId: currentUser._id });
+    setUnreadCounts((prev) => ({ ...prev, [activeConvoId]: 0 }));
+  }, [activeConvoId]);
+
+  const activeContact = useMemo(
+    () => contacts.find((contact) => contact.convoId === activeConvoId) || null,
+    [contacts, activeConvoId],
+  );
+
+  const filteredContacts = useMemo(() => {
+    const query = searchContacts.trim().toLowerCase();
+    if (!query) return contacts;
+
+    return contacts.filter((contact) => {
+      const haystack = `${contact.otherName} ${contact.otherId || ""} ${contact.lastMessage || ""}`.toLowerCase();
+      return haystack.includes(query);
     });
-    
-    // Add message to local state immediately for better UX
+  }, [contacts, searchContacts]);
 
-    setMsg("");
-    
-    if (typing) {
-      setTyping(false);
-      socket.emit("stop-typing", { conversationId, senderId: userId._id });
+  const filteredMessages = useMemo(() => {
+    const query = searchInChat.trim().toLowerCase();
+    if (!query) return messages;
+    return messages.filter((message) => String(message.content || "").toLowerCase().includes(query));
+  }, [messages, searchInChat]);
+
+  const handleLoginSuccess = (loggedInUser) => {
+    setUser(loggedInUser);
+    localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(loggedInUser));
+    setShowAuthModal(false);
+    socket.emit("user-online", loggedInUser._id);
+    fetchContacts(loggedInUser._id);
+  };
+
+  const handleLogout = () => {
+    if (user?._id) {
+      socket.emit("user-offline", user._id);
     }
+
+    localStorage.removeItem(USER_STORAGE_KEY);
+    setUser(null);
+    setContacts([]);
+    setMessages([]);
+    setActiveConvoId("");
+    setUnreadCounts({});
+    setShowAuthModal(true);
   };
-  
-  // Toggle profile dropdown
-  const toggleProfileDropdown = () => {
-    setProfileDropdownOpen(!profileDropdownOpen);
+
+  const handleAddContact = (convoId) => {
+    if (!user?._id) return;
+    fetchContacts(user._id, convoId);
   };
-  
-  // App introduction content
-  const IntroContent = () => (
-    <div className="flex flex-col items-center justify-center h-full text-center px-6">
-      <div className="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mb-6">
-        <MessageCircle size={36} className="text-blue-500" />
-      </div>
-      <h1 className="text-2xl font-bold text-white mb-2">Welcome to NextChat</h1>
-      <p className="text-gray-400 max-w-md mb-8">
-        A modern, secure messaging platform built with Next.js and Tailwind CSS.
-        {userId ? " Add a contact to get started." : " Please login to get started."}
-      </p>
-      {!userId && (
-        <button
-          onClick={() => setShowAuthModal(true)}
-          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          Login / Sign Up
-        </button>
-      )}
-      {userId && contacts.length === 0 && (
-        <button
-          onClick={() => setShowAddMemberModal(true)}
-          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          Add New Contact
-        </button>
-      )}
-    </div>
-  );
-  
-  // Filter contacts based on search query
-  const filteredContacts = contacts.filter(contact => 
-    contact.other_name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-  
+
+  const currentDraft = drafts[activeConvoId] || "";
+
+  const setCurrentDraft = (value) => {
+    if (!activeConvoId) return;
+
+    setDrafts((prev) => ({ ...prev, [activeConvoId]: value }));
+
+    if (!user?._id) return;
+
+    if (value.trim()) {
+      socket.emit("typing", { conversationId: activeConvoId, senderId: user._id });
+      return;
+    }
+
+    socket.emit("stop-typing", { conversationId: activeConvoId, senderId: user._id });
+  };
+
+  const sendMessage = () => {
+    if (!activeConvoId || !user?._id || !currentDraft.trim()) return;
+
+    const content = currentDraft.trim();
+    socket.emit("send-message", {
+      conversationId: activeConvoId,
+      senderId: user._id,
+      content,
+    });
+
+    setDrafts((prev) => ({ ...prev, [activeConvoId]: "" }));
+    socket.emit("stop-typing", { conversationId: activeConvoId, senderId: user._id });
+  };
+
+  const renderConnectionStatus = () => {
+    if (connectionStatus === "connected") {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300/35 bg-emerald-400/20 px-2 py-1 text-xs text-emerald-100">
+          <Wifi size={12} /> Live
+        </span>
+      );
+    }
+
+    if (connectionStatus === "reconnecting") {
+      return (
+        <span className="inline-flex items-center gap-1 rounded-full border border-amber-200/35 bg-amber-300/20 px-2 py-1 text-xs text-amber-100">
+          <WifiOff size={12} /> Reconnecting
+        </span>
+      );
+    }
+
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-rose-200/35 bg-rose-400/20 px-2 py-1 text-xs text-rose-100">
+        <WifiOff size={12} /> Offline
+      </span>
+    );
+  };
+
   return (
-    <div className="flex h-screen bg-gray-950 text-white">
-      {/* Login/Signup Modal */}
-      {showAuthModal && (
-        <AuthModal 
-          isOpen={showAuthModal} 
-          onClose={() => setShowAuthModal(false)} 
-          setContacts={setContacts}
-          setUserId={setUserId}
-        />
-      )}
-      
-      {/* Add Member Modal */}
-      {showAddMemberModal && (
-        <AddMemberModal 
-          isOpen={showAddMemberModal} 
-          onClose={() => setShowAddMemberModal(false)}
-          contacts={contacts}
-          setContacts={setContacts}
-          senderId={userId}
-        />
-      )}
-      
-      {/* Sidebar toggle for mobile */}
-      <div className="md:hidden fixed top-4 left-4 z-30">
-        <button 
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 bg-gray-800 rounded-full"
+    <main className="relative min-h-screen overflow-hidden bg-[var(--app-bg)] text-white">
+      <div className="pointer-events-none absolute -left-32 -top-24 h-80 w-80 rounded-full bg-cyan-400/20 blur-3xl" />
+      <div className="pointer-events-none absolute -right-20 top-1/3 h-96 w-96 rounded-full bg-orange-300/15 blur-3xl" />
+
+      <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} onLoginSuccess={handleLoginSuccess} />
+      <AddContactModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onAdd={handleAddContact}
+        senderId={user?._id}
+      />
+
+      <div className="relative z-10 mx-auto flex h-screen max-w-[1500px] gap-4 p-3 md:p-6">
+        <aside
+          className={`absolute inset-y-3 left-3 z-20 w-[86%] max-w-sm rounded-3xl border border-white/15 bg-[var(--panel)] p-4 shadow-2xl shadow-black/35 backdrop-blur transition duration-300 md:static md:w-[360px] ${
+            sidebarOpen ? "translate-x-0" : "-translate-x-[110%] md:translate-x-0"
+          }`}
         >
-          {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-        </button>
-      </div>
-      
-      {/* Contacts sidebar */}
-      <div 
-        className={`w-full md:w-80 bg-gray-900 flex flex-col border-r border-gray-800 ${
-          mobileMenuOpen ? 'fixed inset-0 z-20' : 'hidden md:flex'
-        }`}
-      >
-        <div className="p-4 border-b border-gray-800 flex items-center justify-between">
-          <h1 className="text-xl font-bold">NextChat</h1>
-          <div className="flex items-center">
-            <button 
-              onClick={() => setDarkMode(!darkMode)}
-              className="bg-gray-800 rounded-full p-2 mr-2"
-            >
-              <Moon size={18} />
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h1 className="font-display text-2xl text-white">WebChat</h1>
+              <p className="text-sm text-white/65">Conversations with momentum</p>
+            </div>
+            <button className="rounded-full p-2 text-white/80 hover:bg-white/10 md:hidden" onClick={() => setSidebarOpen(false)}>
+              <X size={18} />
             </button>
-            <div className="relative" ref={profileDropdownRef}>
-              <button 
-                onClick={toggleProfileDropdown}
-                className="bg-gray-800 rounded-full p-2 hover:bg-gray-700 transition-colors"
-              >
-                <User size={18} />
-              </button>
-              <ProfileDropdown 
-                isOpen={profileDropdownOpen} 
-                onClose={() => setProfileDropdownOpen(false)}
-                profile={userProfile}
+          </div>
+
+          <div className="mb-4 flex items-center justify-between rounded-2xl border border-white/15 bg-white/5 px-3 py-2">
+            <div className="flex items-center gap-2">
+              <div className="grid h-8 w-8 place-items-center rounded-full bg-cyan-300/30 text-cyan-100">
+                {user ? getInitials(user.username) : <User size={14} />}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">{user?.username || "Guest"}</p>
+                <p className="truncate text-xs text-white/60">{user?.email || "Sign in to start"}</p>
+              </div>
+            </div>
+            {renderConnectionStatus()}
+          </div>
+
+          <div className="mb-3 flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/45" />
+              <input
+                className="w-full rounded-xl border border-white/15 bg-black/25 py-2 pl-9 pr-3 text-sm text-white outline-none ring-cyan-400/50 transition focus:ring"
+                placeholder="Search contacts"
+                value={searchContacts}
+                onChange={(event) => setSearchContacts(event.target.value)}
               />
             </div>
-          </div>
-        </div>
-
-        {contacts.length === 0 && !userId ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-4">
-            <div className="bg-gray-800 rounded-full p-6 mb-4">
-              <Users size={32} className="text-blue-500" />
-            </div>
-            <p className="text-center text-gray-400 mb-4">No contacts yet</p>
-            <button 
-              onClick={() => setShowAuthModal(true)}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+            <button
+              className="rounded-xl border border-white/15 bg-white/10 p-2 text-cyan-100 transition hover:bg-white/20"
+              onClick={() => setShowAddModal(true)}
+              disabled={!user}
+              title="Add contact"
             >
-              Login to Get Started
+              <UserRoundPlus size={18} />
             </button>
           </div>
-        ) : (
-          <>
-            <div className="p-4">
-              <div className="relative mb-3">
-                <input 
-                  type="text" 
-                  placeholder="Search contacts..." 
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-gray-800 rounded-full pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                />
-                <Search size={16} className="absolute left-3 top-3 text-gray-500" />
+
+          <div className="chat-scroll h-[calc(100%-210px)] space-y-2 overflow-y-auto pr-1">
+            {filteredContacts.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-white/20 bg-black/15 p-5 text-sm text-white/75">
+                {user ? "No conversations yet. Add someone to begin." : "Sign in to view your conversations."}
               </div>
-              
-              {/* Add Member button */}
-              <button
-                onClick={() => setShowAddMemberModal(true)}
-                className="flex items-center justify-center w-full bg-gray-800 hover:bg-gray-700 text-white rounded-lg py-2 px-4 transition-colors"
-              >
-                <UserPlus size={18} className="mr-2" />
-                <span>Add New Contact</span>
-              </button>
-            </div>
-            
-            {/* Contacts list */}
-            <div className="flex-1 overflow-y-auto">
-              {filteredContacts.map(contact => (
-                <div
-                  key={contact.id}
-                  onClick={() => handleContactClick(contact)}
-                  className={`p-3 border-b border-gray-800 cursor-pointer hover:bg-gray-800 transition-colors ${
-                    activeContact?.id === contact.id ? 'bg-gray-800' : ''
-                  }`}
-                >
-                  <div className="flex items-center">
-                    <div className="relative">
-                      <div className="w-12 h-12 rounded-full bg-gray-700 flex items-center justify-center mr-3">
-                        <span className="text-lg font-medium">
-                          {contact.other_name.charAt(0)}
+            ) : (
+              filteredContacts.map((contact) => {
+                const isActive = contact.convoId === activeConvoId;
+                const isOnline = onlineUsers.includes(contact.otherId);
+                const unread = unreadCounts[contact.convoId] || 0;
+
+                return (
+                  <button
+                    key={contact.convoId}
+                    onClick={() => {
+                      setActiveConvoId(contact.convoId);
+                      setSidebarOpen(false);
+                    }}
+                    className={`w-full rounded-2xl border px-3 py-2.5 text-left transition ${
+                      isActive
+                        ? "border-cyan-200/45 bg-cyan-300/15 shadow-lg shadow-cyan-500/10"
+                        : "border-white/10 bg-black/20 hover:border-white/25 hover:bg-white/10"
+                    }`}
+                  >
+                    <div className="mb-1 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-orange-200/40 to-cyan-300/40 text-xs font-semibold">
+                          {getInitials(contact.otherName)}
                         </span>
+                        <span className="max-w-[150px] truncate text-sm font-semibold text-white">{contact.otherName}</span>
+                        {isOnline ? <span className="h-2 w-2 rounded-full bg-emerald-300" /> : null}
                       </div>
-                      {onlineUsers.includes(contact.other_id) && (
-                        <div className="absolute bottom-0 right-2 w-3 h-3 bg-green-500 rounded-full border-2 border-gray-900"></div>
-                      )}
+                      <span className="text-[11px] text-white/55">{formatTime(contact.lastMessageAt)}</span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between">
-                        <h3 className="font-medium truncate">{contact.other_name}</h3>
-                        <div className="flex items-center">
-                          {onlineUsers.includes(contact.other_id) && (
-                            <span className="text-xs text-green-400 mr-2">online</span>
-                          )}
-                          {/* Unread message count badge */}
-                          {unreadCounts[contact.convo_id] > 0 && (
-                            <span className="bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
-                              {unreadCounts[contact.convo_id]}
-                            </span>
-                          )}
-                        </div>
-                      </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-xs text-white/65">{contact.lastMessage || "No messages yet"}</p>
+                      {unread > 0 ? (
+                        <span className="grid h-5 min-w-5 place-items-center rounded-full bg-rose-400 px-1 text-[11px] font-semibold text-white">
+                          {unread > 99 ? "99+" : unread}
+                        </span>
+                      ) : null}
                     </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <button
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200/30 bg-rose-500/20 py-2 text-sm text-rose-100 transition hover:bg-rose-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleLogout}
+            disabled={!user}
+          >
+            <LogOut size={15} /> Log out
+          </button>
+        </aside>
+
+        <section className="flex min-w-0 flex-1 flex-col rounded-3xl border border-white/15 bg-[var(--panel)] shadow-2xl shadow-black/30 backdrop-blur">
+          <div className="flex items-center justify-between gap-2 border-b border-white/10 px-4 py-3 md:px-6">
+            <div className="flex items-center gap-3">
+              <button className="rounded-full p-2 text-white/90 hover:bg-white/10 md:hidden" onClick={() => setSidebarOpen(true)}>
+                <Menu size={18} />
+              </button>
+
+              {activeContact ? (
+                <>
+                  <div className="grid h-10 w-10 place-items-center rounded-full bg-gradient-to-br from-cyan-300/35 to-orange-200/40 font-semibold">
+                    {getInitials(activeContact.otherName)}
                   </div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-      
-      {/* Chat area */}
-      <div className="flex-1 flex flex-col bg-gray-950">
-        {activeContact ? (
-          <>
-            {/* Chat header */}
-            <div className="p-4 border-b border-gray-800 flex items-center">
-              <div className="w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center mr-3">
-                <span className="font-medium">{activeContact.other_name.charAt(0)}</span>
-              </div>
-              <div className="flex-1">
-                <h2 className="font-medium">{activeContact.other_name}</h2>
-              </div>
-            </div>
-            
-            {/* Messages area */}
-            <div className="flex-1 p-4 overflow-y-auto">
-              {messages.length === 0 ? (
-                <div className="h-full flex items-center justify-center">
-                  <p className="text-gray-500">No messages yet. Start the conversation!</p>
-                </div>
+                  <div>
+                    <h2 className="font-display text-xl text-white">{activeContact.otherName}</h2>
+                    <p className="text-xs text-white/60">{onlineUsers.includes(activeContact.otherId) ? "Online" : "Offline"}</p>
+                  </div>
+                </>
               ) : (
-                messages.map((m) => (
-                  <div key={m._id} className={`mb-4 flex ${m.sender === userId._id ? 'justify-end' : 'justify-start'}`}>
-                    <div 
-                      className={`max-w-[20%] px-4 py-2 rounded-lg shadow ${
-                        m.sender === userId._id 
-                          ? 'bg-blue-600 text-white rounded-br-none' 
-                          : 'bg-gray-800 text-white rounded-bl-none'
+                <>
+                  <div className="grid h-10 w-10 place-items-center rounded-full bg-white/10">
+                    <MessageSquareDot size={18} />
+                  </div>
+                  <div>
+                    <h2 className="font-display text-xl text-white">Conversation Space</h2>
+                    <p className="text-xs text-white/60">Select a chat to start messaging</p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {activeContact ? (
+              <div className="relative w-44 md:w-72">
+                <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/45" />
+                <input
+                  className="w-full rounded-xl border border-white/15 bg-black/25 py-2 pl-8 pr-3 text-sm text-white outline-none ring-cyan-400/50 transition focus:ring"
+                  value={searchInChat}
+                  onChange={(event) => setSearchInChat(event.target.value)}
+                  placeholder="Search messages"
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <div className="chat-scroll relative flex-1 overflow-y-auto px-4 py-5 md:px-6">
+            {!activeContact ? (
+              <div className="grid h-full place-items-center text-center">
+                <div className="max-w-md rounded-3xl border border-white/15 bg-black/20 p-8">
+                  <h3 className="font-display mb-2 text-3xl text-white">Make your chat extraordinary</h3>
+                  <p className="text-sm text-white/70">
+                    Real-time typing indicators, unread tracking, reconnect awareness, and sleek mobile behavior are now built in.
+                  </p>
+                  <button
+                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-4 py-2 font-semibold text-slate-900 transition hover:brightness-110"
+                    onClick={() => {
+                      if (!user) {
+                        setShowAuthModal(true);
+                        return;
+                      }
+                      setShowAddModal(true);
+                    }}
+                  >
+                    <CirclePlus size={17} /> Start a chat
+                  </button>
+                </div>
+              </div>
+            ) : filteredMessages.length === 0 ? (
+              <div className="grid h-full place-items-center text-center text-white/65">
+                {searchInChat ? "No messages matched your search." : "No messages yet. Say hello."}
+              </div>
+            ) : (
+              filteredMessages.map((message) => {
+                const mine = message.sender === user?._id;
+
+                return (
+                  <div key={message._id} className={`mb-3 flex ${mine ? "justify-end" : "justify-start"}`}>
+                    <article
+                      className={`max-w-[86%] rounded-2xl px-4 py-2.5 shadow-lg md:max-w-[65%] ${
+                        mine
+                          ? "rounded-br-sm bg-gradient-to-br from-cyan-300 to-emerald-300 text-slate-900"
+                          : "rounded-bl-sm border border-white/15 bg-white/10 text-white"
                       }`}
                     >
-                      <p className={`text-xs text-gray-300 underline ${m.sender === userId._id ? 'text-right' : 'text-left'}`}>{m.sender === userId._id ? 'You' : activeContact.other_name}</p>
-                      <p className={`break-words text-left`}>{m.content}</p>
-                      <p className="text-[10px] text-right mt-1 opacity-70">
-                        {m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'sending...'}
-                      </p>
-                    </div>
+                      <p className="whitespace-pre-wrap break-words text-sm">{message.content}</p>
+                      <p className={`mt-1 text-[11px] ${mine ? "text-slate-700/80" : "text-white/60"}`}>{formatTime(message.createdAt)}</p>
+                    </article>
                   </div>
-                ))
-              )}
-              {typingSender && (
-                <div className="flex mb-4">
-                  <div className="bg-gray-800 rounded-lg px-4 py-2">
-                    <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                      <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
+                );
+              })
+            )}
+
+            {typingSender && activeContact ? (
+              <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs text-white/80">
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                typing...
+              </div>
+            ) : null}
+            <div ref={messagesEndRef} />
+          </div>
+
+          <div className="border-t border-white/10 px-4 py-3 md:px-6">
+            <div className="flex items-end gap-2">
+              <textarea
+                rows={1}
+                value={currentDraft}
+                onChange={(event) => setCurrentDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    sendMessage();
+                  }
+                }}
+                className="max-h-36 min-h-[46px] flex-1 resize-y rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-white outline-none ring-cyan-400/60 transition focus:ring"
+                placeholder={activeContact ? "Type a message (Enter to send, Shift+Enter for new line)" : "Select a conversation first"}
+                disabled={!activeContact || !user}
+              />
+              <button
+                onClick={sendMessage}
+                className="rounded-2xl bg-gradient-to-r from-cyan-300 to-emerald-300 p-3 text-slate-900 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!activeContact || !user || !currentDraft.trim()}
+                aria-label="Send message"
+              >
+                <Send size={18} />
+              </button>
             </div>
-            
-            {/* Chat input */}
-            <div className="border-t border-gray-800 p-4">
-              <div className="flex items-center">
-                <input
-                  type="text"
-                  value={msg}
-                  onChange={(e) => {
-                    setMsg(e.target.value);
-                    if (!typing && e.target.value) {
-                      setTyping(true);
-                      socket.emit("typing", { conversationId, senderId: userId._id });
-                    } else if (typing && !e.target.value) {
-                      setTyping(false);
-                      socket.emit("stop-typing", { conversationId, senderId: userId._id });
-                    }
-                  }}
-                  onBlur={() => {
-                    if (typing) {
-                      setTyping(false);
-                      socket.emit("stop-typing", { conversationId, senderId: userId._id });
-                    }
-                  }}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      sendMessage();
-                    }
-                  }}
-                  placeholder="Type a message..."
-                  className="flex-grow bg-gray-800 text-white rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <button 
-                  onClick={sendMessage}
-                  className="ml-2 bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <Send size={18} />
-                </button>
-              </div>
-              </div>
-          </>
-        ) : (
-          <IntroContent />
-        )}
+          </div>
+        </section>
       </div>
-      
-      {/* Toast notifications */}
-      {toast && (
-        <Toast 
-          message={toast} 
-          onClose={() => setToast(null)} 
-          onClick={() => {
-            if (toast.contactId) {
-              const contact = contacts.find(c => c.id === toast.contactId);
-              if (contact) {
-                handleContactClick(contact);
-                setToast(null);
-              }
-            }
-          }}
-        />
-      )}
-      
-      {/* Global styles */}
-      <style jsx global>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .animate-fadeIn {
-          animation: fadeIn 0.2s ease-out forwards;
-        }
-        
-        .animate-bounce {
-          animation: bounce 1s infinite;
-        }
-        
-        @keyframes bounce {
-          0%, 100% { transform: translateY(0); }
-          50% { transform: translateY(-5px); }
-        }
-      `}</style>
-      
-    </div>
+    </main>
   );
-};
-
-export default ChatApp;
-
-
-
-
-
+}
